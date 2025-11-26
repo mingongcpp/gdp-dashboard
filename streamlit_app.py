@@ -2,175 +2,199 @@ import streamlit as st
 import pandas as pd
 from io import StringIO
 
-# =========================
-#  Streamlit – Dictionary Classifier
-# =========================
+# =========================================
+# Streamlit App with Sidebar Navigation
+# =========================================
 
 st.set_page_config(page_title="Dictionary Classifier", layout="wide")
 
-st.title("🔍 Dictionary Classifier")
+# --------- Initialize session state ---------
+if "df" not in st.session_state:
+    st.session_state["df"] = None
 
-st.markdown(
-    """
-This app applies simple dictionary-based classification on a text column called **`Statement`**.
-
-**Steps:**
-1. Upload a CSV file containing a `Statement` column.  
-2. Edit the default tactic dictionaries if you like.  
-3. Run the classifier and download the annotated CSV.
-"""
-)
-
-# 1️⃣ ---- DEFAULT DICTIONARIES (same as your script) ----
-DEFAULT_DICTIONARIES = {
-    "urgency_marketing": {
-        "limited", "limited time", "limited run", "limited edition", "order now",
-        "last chance", "hurry", "while supplies last", "before they're gone",
-        "selling out", "selling fast", "act now", "don't wait", "today only",
-        "expires soon", "final hours", "almost gone"
-    },
-    "exclusive_marketing": {
-        "exclusive", "exclusively", "exclusive offer", "exclusive deal",
-        "members only", "vip", "special access", "invitation only",
-        "premium", "privileged", "limited access", "select customers",
-        "insider", "private sale", "early access"
-    }
-}
-
-# Keep a mutable copy in session_state
 if "dictionaries" not in st.session_state:
     st.session_state["dictionaries"] = {
-        k: sorted(list(v)) for k, v in DEFAULT_DICTIONARIES.items()
+        "urgency_marketing": sorted([
+            "limited", "limited time", "limited run", "limited edition", "order now",
+            "last chance", "hurry", "while supplies last", "before they're gone",
+            "selling out", "selling fast", "act now", "don't wait", "today only",
+            "expires soon", "final hours", "almost gone"
+        ]),
+        "exclusive_marketing": sorted([
+            "exclusive", "exclusively", "exclusive offer", "exclusive deal",
+            "members only", "vip", "special access", "invitation only",
+            "premium", "privileged", "limited access", "select customers",
+            "insider", "private sale", "early access"
+        ])
     }
 
-dictionaries = st.session_state["dictionaries"]
+# --------- Sidebar Navigation ---------
+st.sidebar.title("📌 Navigation")
+page = st.sidebar.radio(
+    "Go to page:",
+    ["Home", "Upload Data", "Edit Dictionaries", "Run Classification", "Download Results"]
+)
 
-# 2️⃣ ---- FILE UPLOAD ----
-st.subheader("1. Upload your CSV")
-
-uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
-
-if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file)
-    except Exception as e:
-        st.error(f"Error reading CSV: {e}")
-        df = None
-else:
-    df = None
-
-if df is not None:
-    st.write("Preview of uploaded data:")
-    st.dataframe(df.head(), use_container_width=True)
-
-    if "Statement" not in df.columns:
-        st.error("❌ No 'Statement' column found in the uploaded file. Please include a column named `Statement`.")
-else:
-    st.info("Upload a CSV to continue.")
-
-# 3️⃣ ---- DICTIONARY EDITOR ----
-st.subheader("2. Edit tactic dictionaries")
-
-st.markdown("Each tactic is a **group of keywords/phrases**. Enter keywords separated by commas.")
-
-# Existing tactic editors
-for tactic in list(dictionaries.keys()):
-    with st.expander(f"Tactic: `{tactic}`", expanded=False):
-        current_keywords = ", ".join(dictionaries[tactic])
-        new_value = st.text_area(
-            f"Keywords for `{tactic}` (comma-separated)",
-            value=current_keywords,
-            key=f"text_{tactic}",
-            height=100
-        )
-        # Update keywords from textarea
-        dictionaries[tactic] = [
-            kw.strip() for kw in new_value.split(",") if kw.strip()
-        ]
-
-# Add a new tactic
-st.markdown("---")
-st.markdown("**Add a new tactic**")
-
-col_new1, col_new2 = st.columns([1, 3])
-with col_new1:
-    new_tactic_name = st.text_input("New tactic name", value="", placeholder="e.g., scarcity_marketing")
-with col_new2:
-    new_tactic_keywords = st.text_input("Keywords for new tactic (comma-separated)", value="")
-
-if st.button("Add tactic"):
-    if not new_tactic_name.strip():
-        st.warning("Please provide a name for the new tactic.")
-    elif new_tactic_name in dictionaries:
-        st.warning("That tactic name already exists.")
-    else:
-        dictionaries[new_tactic_name] = [
-            kw.strip()
-            for kw in new_tactic_keywords.split(",")
-            if kw.strip()
-        ]
-        st.success(f"Added tactic `{new_tactic_name}`.")
-        # trigger re-render with updated state
-        st.experimental_rerun()
-
-st.session_state["dictionaries"] = dictionaries
-
-# Convert to sets for classification logic (like original script)
-dicts_for_classification = {k: set(v) for k, v in dictionaries.items()}
-
-# 4️⃣ ---- CLASSIFICATION FUNCTION ----
+# =========================================
+#  Classification Function
+# =========================================
 def classify(text: str, dictionaries: dict) -> dict:
     """Return {tactic: {present,bool; count,int; matches,list}}."""
     text_lower = str(text).lower()
     result = {}
+
     for tactic, keywords in dictionaries.items():
         matches = [kw for kw in keywords if kw.lower() in text_lower]
         result[tactic] = {
             "present": bool(matches),
             "count": len(matches),
-            "matches": matches,
+            "matches": matches
         }
+
     return result
 
-# 5️⃣ ---- RUN CLASSIFICATION ----
-st.subheader("3. Run classification")
 
-if df is not None and "Statement" in df.columns:
-    if st.button("🔎 Classify statements"):
-        # Apply classification
-        df["classification"] = df["Statement"].apply(
-            lambda s: classify(s, dicts_for_classification)
-        )
+# =========================================
+#  HOME PAGE
+# =========================================
+if page == "Home":
+    st.title("🔍 Dictionary Classifier")
+    st.markdown("""
+    Welcome!  
+    This app classifies text using editable keyword dictionaries.
 
-        # Flatten the nested dict
-        for tactic in dicts_for_classification:
-            df[f"{tactic}_present"] = df["classification"].apply(
-                lambda d: d[tactic]["present"]
+    **Workflow:**
+    1️⃣ Upload a CSV containing a `Statement` column  
+    2️⃣ Edit the keyword dictionaries  
+    3️⃣ Run the classifier  
+    4️⃣ Download the annotated file  
+    """)
+
+# =========================================
+#  UPLOAD DATA PAGE
+# =========================================
+elif page == "Upload Data":
+    st.title("📤 Upload Your Data")
+
+    uploaded = st.file_uploader("Upload a CSV file", type=["csv"])
+
+    if uploaded:
+        try:
+            df = pd.read_csv(uploaded)
+            st.session_state["df"] = df
+        except Exception as e:
+            st.error(f"Error reading CSV: {e}")
+
+    if st.session_state["df"] is not None:
+        df = st.session_state["df"]
+        st.write("Preview of uploaded data:")
+        st.dataframe(df.head(), use_container_width=True)
+
+        if "Statement" not in df.columns:
+            st.error("❌ The CSV must include a `Statement` column.")
+        else:
+            st.success("File successfully loaded!")
+
+# =========================================
+#  EDIT DICTIONARIES PAGE
+# =========================================
+elif page == "Edit Dictionaries":
+    st.title("📚 Edit Dictionaries")
+
+    dictionaries = st.session_state["dictionaries"]
+
+    st.markdown("Edit the keywords for each tactic below (comma-separated).")
+
+    # Existing dictionaries
+    for tactic in list(dictionaries.keys()):
+        with st.expander(f"Tactic: `{tactic}`"):
+            current = ", ".join(dictionaries[tactic])
+            new_value = st.text_area(
+                f"Keywords for `{tactic}` (comma-separated)",
+                value=current,
+                key=f"edit_{tactic}",
+                height=120
             )
-            df[f"{tactic}_count"] = df["classification"].apply(
-                lambda d: d[tactic]["count"]
+            dictionaries[tactic] = [
+                k.strip() for k in new_value.split(",") if k.strip()
+            ]
+
+    # Add a new tactic
+    st.markdown("---")
+    st.subheader("➕ Add a new tactic")
+
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        new_name = st.text_input("Tactic name")
+    with col2:
+        new_keywords = st.text_input("Keywords (comma-separated)")
+
+    if st.button("Add tactic"):
+        if not new_name.strip():
+            st.warning("Enter a tactic name.")
+        elif new_name in dictionaries:
+            st.warning("This tactic already exists.")
+        else:
+            dictionaries[new_name] = [
+                k.strip() for k in new_keywords.split(",") if k.strip()
+            ]
+            st.success(f"Added tactic `{new_name}`.")
+            st.session_state["dictionaries"] = dictionaries
+            st.experimental_rerun()
+
+    st.session_state["dictionaries"] = dictionaries
+
+
+# =========================================
+#  RUN CLASSIFICATION PAGE
+# =========================================
+elif page == "Run Classification":
+    st.title("⚙️ Run Classification")
+
+    df = st.session_state["df"]
+    dictionaries = {k: set(v) for k, v in st.session_state["dictionaries"].items()}
+
+    if df is None:
+        st.warning("Upload a dataset first.")
+    elif "Statement" not in df.columns:
+        st.error("❌ The CSV must include a `Statement` column.")
+    else:
+        if st.button("Run classifier"):
+            df["classification"] = df["Statement"].apply(
+                lambda s: classify(s, dictionaries)
             )
-            df[f"{tactic}_matches"] = df["classification"].apply(
-                lambda d: ", ".join(d[tactic]["matches"])
-            )
 
-        st.success("✅ Classification complete!")
+            # Flatten results
+            for tactic in dictionaries:
+                df[f"{tactic}_present"] = df["classification"].apply(lambda d: d[tactic]["present"])
+                df[f"{tactic}_count"] = df["classification"].apply(lambda d: d[tactic]["count"])
+                df[f"{tactic}_matches"] = df["classification"].apply(lambda d: ", ".join(d[tactic]["matches"]))
 
-        st.markdown("### Classified data preview")
-        st.dataframe(df, use_container_width=True)
+            st.session_state["df"] = df
+            st.success("Classification complete!")
 
-        # 6️⃣ ---- DOWNLOAD RESULT ----
-        st.markdown("### 4. Download classified CSV")
+        if st.session_state["df"] is not None and "classification" in st.session_state["df"]:
+            st.dataframe(st.session_state["df"].head(), use_container_width=True)
 
+# =========================================
+#  DOWNLOAD RESULTS PAGE
+# =========================================
+elif page == "Download Results":
+    st.title("⬇️ Download Results")
+
+    df = st.session_state["df"]
+
+    if df is None or "classification" not in df:
+        st.warning("You must run classification first.")
+    else:
         csv_buffer = StringIO()
         df.to_csv(csv_buffer, index=False)
-        csv_bytes = csv_buffer.getvalue().encode("utf-8")
 
         st.download_button(
-            label="⬇️ Download `classified_output.csv`",
-            data=csv_bytes,
+            "⬇️ Download `classified_output.csv`",
+            data=csv_buffer.getvalue(),
             file_name="classified_output.csv",
-            mime="text/csv",
+            mime="text/csv"
         )
-else:
-    st.info("Once a valid CSV (with `Statement` column) is uploaded, you can run classification here.")
+
+        st.success("File ready for download!")
